@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  ml-pipeline:
+  train-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,11 +28,14 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
-      - name: Install dependencies
+      - name: Install ML dependencies
         run: pip install -r requirements.txt
 
-      - name: Train ML model
+      - name: Train student result model
         run: python train_model.py
 
-      - name: Run ML tests
+      - name: Check ML quality gate
+        run: python quality_gate.py
+
+      - name: Run automated ML tests
         run: python -m unittest discover -v
