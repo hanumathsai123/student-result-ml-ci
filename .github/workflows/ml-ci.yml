@@ -43,6 +43,9 @@ jobs:
       - name: Run automated ML and API tests
         run: python -m unittest discover -v
 
+      - name: Check ML quality gate before packaging
+        run: python quality_gate.py
+
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
