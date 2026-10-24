@@ -6,7 +6,6 @@ from app import app
 class TestPredictionApplication(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # The model is generated in the preceding CI training step.
         from train_model import main
         main()
 
@@ -19,8 +18,7 @@ class TestPredictionApplication(unittest.TestCase):
         self.assertEqual(response.get_json()["status"], "ok")
 
     def test_health_alias(self):
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/health").status_code, 200)
 
     def test_high_performance_prediction(self):
         response = self.client.post("/predict", json={
