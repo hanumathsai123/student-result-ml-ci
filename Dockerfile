@@ -10,8 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY train_model.py .
 COPY quality_gate.py .
-COPY test_ml_pipeline.py .
-COPY test_app.py .
 
 EXPOSE 5000
 
