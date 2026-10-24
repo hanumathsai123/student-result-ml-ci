@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.git/
+.github/
+.venv/
+venv/
+test_*.py
+student_results.csv
+metrics.json
+student_result_model.pkl
+release_candidate/
