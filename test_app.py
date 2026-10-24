@@ -4,12 +4,9 @@ from app import app
 
 
 class TestPredictionApplication(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         from train_model import main
         main()
-
-    def setUp(self):
         self.client = app.test_client()
 
     def test_health_endpoint(self):
