@@ -1,20 +1,26 @@
 # MLOps Practical Series — Student Result Prediction
 
-This folder contains study guides for the six uploaded practicals. They are organised as Markdown so they can be viewed directly on GitHub.
+This repository now includes **runnable implementation files** for the practical series. The guides are supporting notes; the actual code lives at the project root and the GitHub Actions workflow.
 
-| Practical | Guide | Main activity |
+| Practical | Implemented repository files | Main activity |
 |---|---|---|
-| 5 | [Continuous Delivery](Practical-5-Continuous-Delivery.md) | Flask prediction API tests and release-candidate artifact |
-| 6 | [Dockerize Application](Practical-6-Dockerize-Application.md) | Build and run the application container locally |
-| 7 | [Automate Docker Build and Test](Practical-7-Automate-Docker-Build-Test.md) | Build/test a container in GitHub Actions |
-| 8 | [Publish to GHCR](Practical-8-GHCR-Publish-Image.md) | Publish and pull a tested image from GitHub Container Registry |
-| 9 | [GitHub Actions + GHCR](Practical-9-GitHub-Actions-GHCR.md) | Automate Docker build, tests and image publication |
-| 10 | [Deploy GHCR Image to Render](Practical-10-Deploy-GHCR-Image-to-Render.md) | Deploy the registry image as a Render web service |
+| 5 | `app.py`, `test_app.py`, `requirements.txt`, `.github/workflows/ml-ci.yml` | Flask API, tests, release artifact |
+| 6 | `Dockerfile`, `.dockerignore` | Containerize application |
+| 7 | `.github/workflows/ml-ci.yml` | Build and test image in CI |
+| 8 | Existing published-image flow / manual GHCR commands in [guide](Practical-8-GHCR-Publish-Image.md) | Pull and push image tags |
+| 9 | `.github/workflows/ml-ci.yml` | Automatically publish tested image to GHCR on pushes to main |
+| 10 | Deployment instructions in [guide](Practical-10-Deploy-GHCR-Image-to-Render.md) | Deploy the GHCR image using Render |
 
-## Compatibility note
+## Repository links
 
-The repository originally contains the model-training CI workflow for the Student Result Prediction project. The guides preserve that project as the foundation. Practical 5–9 examples are adapted to its currently inspected Flask app/model bundle conventions. Before deploying, ensure each workflow's port and endpoint match the exact application built into your Docker image.
+- [Application](../app.py)
+- [API tests](../test_app.py)
+- [Dockerfile](../Dockerfile)
+- [GitHub Actions workflow](../.github/workflows/ml-ci.yml)
+- [Project README](../README.md)
 
-The original Practical-9 and Practical-10 handouts describe a FastAPI variant using port 8000 and `/health`/`/docs`; the current model CI repository did not contain `app.py` or `Dockerfile` at the time these guides were added. Review the compatibility notes in each guide before running deployment steps.
+## Port and endpoint convention
 
-Practical 5–10 guides are documentation; adding them does not mean the corresponding code or cloud deployment has already been executed or verified.
+This implementation follows the Flask app in Practical 5: container port **5000**, `GET /`, `GET /health`, and `POST /predict`. The supplied Practical 9–10 handouts mention a different FastAPI convention on port 8000; use the concrete Flask endpoints and port for this repository.
+
+The GitHub Actions workflow is now configured to test the Flask API in a Docker container and publish the image to GHCR on pushes to `main`. Check the Actions run to verify the result. Render service creation is a manual dashboard step and has not been performed automatically.
