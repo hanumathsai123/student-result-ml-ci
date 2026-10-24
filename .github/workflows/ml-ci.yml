@@ -1,4 +1,4 @@
-name: Student Result ML CI
+name: Student Result ML CI/CD
 
 on:
   push:
@@ -11,11 +11,14 @@ on:
 
 permissions:
   contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: student-result-prediction
 
 jobs:
-  train-and-test:
+  train-test-package:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -28,7 +31,7 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
-      - name: Install ML dependencies
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Train student result model
@@ -37,8 +40,16 @@ jobs:
       - name: Check ML quality gate
         run: python quality_gate.py
 
-      - name: Run automated ML tests
+      - name: Run automated ML and API tests
         run: python -m unittest discover -v
+
+      - name: Prepare release candidate
+        run: |
+          mkdir -p release_candidate
+          cp app.py train_model.py quality_gate.py requirements.txt release_candidate/
+          cp student_result_model.pkl metrics.json student_results.csv release_candidate/
+          cp Dockerfile .dockerignore release_candidate/
+          printf "Student Result Prediction\nStatus: GET /health\nPrediction: POST /predict\nContainer port: 5000\n" > release_candidate/DEPLOYMENT.txt
 
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
@@ -50,3 +61,96 @@ jobs:
             student_results.csv
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload Docker-ready release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: student-result-ml-release
+          path: release_candidate/
+          if-no-files-found: error
+          retention-days: 7
+
+  docker-build-test:
+    needs: train-test-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Train model for container image
+        run: python train_model.py
+
+      - name: Check ML quality gate
+        run: python quality_gate.py
+
+      - name: Run tests before container build
+        run: python -m unittest discover -v
+
+      - name: Build Docker image
+        run: docker build -t student-result-ml:${{ github.sha }} .
+
+      - name: Start test container
+        run: docker run -d --name student-result-ml-container -p 5000:5000 student-result-ml:${{ github.sha }}
+
+      - name: Wait for API health
+        run: |
+          for attempt in {1..20}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              echo "Health check passed."
+              exit 0
+            fi
+            echo "Waiting for API..."
+            sleep 2
+          done
+          docker logs student-result-ml-container
+          exit 1
+
+      - name: Test prediction endpoint
+        run: |
+          response=$(curl --fail --silent --show-error \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"attendance":95,"internal_marks":95,"assignment_marks":95,"previous_score":95}' \
+            http://localhost:5000/predict)
+          echo "Prediction response: $response"
+          echo "$response" | grep -q '"prediction":"PASS"'
+
+      - name: Capture container logs
+        if: always()
+        run: docker logs student-result-ml-container || true
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f student-result-ml-container || true
+
+      - name: Prepare lowercase GHCR image name
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          IMAGE_ID="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
+          IMAGE_ID=$(echo "$IMAGE_ID" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Tag tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker tag student-result-ml:${{ github.sha }} "$IMAGE_ID:latest"
+          docker tag student-result-ml:${{ github.sha }} "$IMAGE_ID:sha-${{ github.sha }}"
+
+      - name: Publish tested image to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push "$IMAGE_ID:latest"
+          docker push "$IMAGE_ID:sha-${{ github.sha }}"
