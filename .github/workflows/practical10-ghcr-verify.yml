@@ -1,0 +1,52 @@
+name: Practical 10 - Pull and Verify Published GHCR Image
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Practical 9 - Build, Test and Publish Student Result Prediction"]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  pull-and-test:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull published image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/student-result-prediction:latest"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          docker pull "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Run container
+        run: docker run -d --name practical10-check -p 5000:5000 "$IMAGE"
+
+      - name: Verify health and prediction endpoints
+        run: |
+          for attempt in {1..20}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent --show-error http://localhost:5000/health
+          response=$(curl --fail --silent --show-error -X POST http://localhost:5000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"attendance":95,"internal_marks":95,"assignment_marks":95,"previous_score":95}')
+          echo "$response"
+          echo "$response" | grep -q '"prediction":"PASS"'
+
+      - name: Show container logs
+        if: always()
+        run: docker logs practical10-check || true
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f practical10-check || true
