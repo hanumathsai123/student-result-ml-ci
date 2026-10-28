@@ -1,4 +1,4 @@
-name: Student Result ML CI/CD
+name: Practical 9 - Build, Test and Publish Student Result Prediction
 
 on:
   push:
