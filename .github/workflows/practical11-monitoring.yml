@@ -1,0 +1,63 @@
+name: Practical 11 - Container Logging and Health Checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "Dockerfile"
+      - "requirements.txt"
+      - "train_model.py"
+      - "quality_gate.py"
+      - ".github/workflows/practical11-monitoring.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  logging-health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Train model
+        run: python train_model.py
+
+      - name: Check model quality
+        run: python quality_gate.py
+
+      - name: Build test image
+        run: docker build -t student-result-practical11 .
+
+      - name: Start container
+        run: docker run -d --name practical11-monitor -p 5000:5000 student-result-practical11
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in {1..20}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              echo "Health endpoint is responding."
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs practical11-monitor
+          exit 1
+
+      - name: Capture application logs
+        if: always()
+        run: docker logs practical11-monitor || true
+
+      - name: Clean up container
+        if: always()
+        run: docker rm -f practical11-monitor || true
