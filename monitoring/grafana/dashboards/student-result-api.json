@@ -40,7 +40,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(student_api_http_requests_total[5m]))",
+          "expr": "sum(rate(student_api_http_requests_total[5m])) or vector(0)",
           "legendFormat": "Requests/sec",
           "refId": "A"
         }
@@ -80,7 +80,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(student_api_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(student_api_http_request_duration_seconds_bucket[5m]))) or vector(0)",
           "legendFormat": "p95 duration",
           "refId": "A"
         }
@@ -120,7 +120,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (status_code) (student_api_http_requests_total)",
+          "expr": "sum by (status_code) (student_api_http_requests_total) or vector(0)",
           "legendFormat": "HTTP {{status_code}}",
           "refId": "A"
         }
@@ -160,7 +160,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (result) (student_api_predictions_total)",
+          "expr": "sum by (result) (student_api_predictions_total) or vector(0)",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
