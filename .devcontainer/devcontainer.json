@@ -4,8 +4,8 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
-      "enableNonRootDocker": "true",
-      "moby": "true"
+      "enableNonRootDocker": true,
+      "moby": true
     }
   },
   "forwardPorts": [3000, 5000, 9090],
