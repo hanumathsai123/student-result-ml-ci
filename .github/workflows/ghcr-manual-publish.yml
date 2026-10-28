@@ -1,0 +1,92 @@
+name: GHCR Manual Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag (default: latest)"
+        required: false
+        default: "latest"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: student-result-ml-ci
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Train model and run quality gate
+        run: |
+          python train_model.py
+          python quality_gate.py
+
+      - name: Run automated tests
+        run: python -m unittest discover -v
+
+      - name: Build Docker image
+        run: docker build -t student-result-prediction:ci .
+
+      - name: Start test container
+        run: docker run -d --name student-result-ghcr-check -p 5000:5000 student-result-prediction:ci
+
+      - name: Verify health and prediction API
+        run: |
+          for attempt in {1..20}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent --show-error http://localhost:5000/health
+          response=$(curl --fail --silent --show-error -X POST http://localhost:5000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"attendance":95,"internal_marks":95,"assignment_marks":95,"previous_score":95}')
+          echo "Prediction response: $response"
+          echo "$response" | grep -q '"prediction":"PASS"'
+
+      - name: Show container logs
+        if: always()
+        run: docker logs student-result-ghcr-check || true
+
+      - name: Clean up test container
+        if: always()
+        run: docker rm -f student-result-ghcr-check || true
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${REGISTRY}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Prepare image name and tags
+        run: |
+          IMAGE_ID="${REGISTRY}/${{ github.repository_owner }}/${IMAGE_NAME}"
+          IMAGE_ID=$(echo "$IMAGE_ID" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
+          docker tag student-result-prediction:ci "$IMAGE_ID:${{ inputs.image_tag }}"
+          docker tag student-result-prediction:ci "$IMAGE_ID:latest"
+
+      - name: Publish image to GHCR
+        run: |
+          docker push "$IMAGE_ID:${{ inputs.image_tag }}"
+          if [ "${{ inputs.image_tag }}" != "latest" ]; then
+            docker push "$IMAGE_ID:latest"
+          fi
+
+      - name: Verify published image can be pulled
+        run: |
+          docker pull "$IMAGE_ID:${{ inputs.image_tag }}"
+          docker image inspect "$IMAGE_ID:${{ inputs.image_tag }}"
