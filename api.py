@@ -8,7 +8,8 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import Counter, Gauge, Histogram, CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
 logging.basicConfig(
@@ -20,10 +21,30 @@ logger = logging.getLogger("student_result_api")
 MODEL_PATH = Path("student_result_model.pkl")
 FEATURES = ["attendance", "internal_marks", "assignment_marks", "previous_score"]
 
+HTTP_REQUESTS = Counter(
+    "student_api_http_requests_total",
+    "Total HTTP requests handled by the API",
+    ["method", "endpoint", "status_code"],
+)
+HTTP_REQUEST_DURATION = Histogram(
+    "student_api_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "endpoint"],
+)
+PREDICTIONS = Counter(
+    "student_api_predictions_total",
+    "Prediction outcomes returned by the model",
+    ["result"],
+)
+MODEL_AVAILABLE = Gauge(
+    "student_api_model_available",
+    "Whether the model file is available (1=yes, 0=no)",
+)
+
 app = FastAPI(
     title="Student Result Prediction API",
     description="Predict a student's result from attendance and assessment marks.",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 
@@ -35,10 +56,11 @@ class StudentInput(BaseModel):
 
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def observe_requests(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
     started = time.perf_counter()
     status_code = 500
+    endpoint = request.url.path
     try:
         response = await call_next(request)
         status_code = response.status_code
@@ -47,16 +69,19 @@ async def log_requests(request: Request, call_next):
     except Exception:
         logger.exception(
             "request_failed request_id=%s method=%s path=%s",
-            request_id, request.method, request.url.path,
+            request_id, request.method, endpoint,
         )
         raise
     finally:
-        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        duration = time.perf_counter() - started
+        HTTP_REQUESTS.labels(request.method, endpoint, str(status_code)).inc()
+        HTTP_REQUEST_DURATION.labels(request.method, endpoint).observe(duration)
+        duration_ms = round(duration * 1000, 2)
         level = logging.WARNING if status_code >= 400 else logging.INFO
         logger.log(
             level,
             "request_complete request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
-            request_id, request.method, request.url.path, status_code, duration_ms,
+            request_id, request.method, endpoint, status_code, duration_ms,
         )
 
 
@@ -67,13 +92,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         "request_validation_failed method=%s path=%s error_types=%s",
         request.method, request.url.path, error_types,
     )
-    return JSONResponse(
-        status_code=422,
-        content={"detail": exc.errors()},
-    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 def load_model():
+    MODEL_AVAILABLE.set(1 if MODEL_PATH.exists() else 0)
     if not MODEL_PATH.exists():
         logger.error("model_unavailable path=%s", MODEL_PATH)
         raise HTTPException(status_code=503, detail="Model file is not available yet.")
@@ -86,12 +109,22 @@ def load_model():
 
 @app.get("/", tags=["default"])
 def root():
-    return {"status": "ok", "service": "student-result-prediction", "docs": "/docs"}
+    return {"status": "ok", "service": "student-result-prediction", "docs": "/docs", "metrics": "/metrics"}
 
 
 @app.get("/health", tags=["default"])
 def health():
-    return {"status": "ok", "service": "student-result-prediction"}
+    available = MODEL_PATH.exists()
+    MODEL_AVAILABLE.set(1 if available else 0)
+    if not available:
+        raise HTTPException(status_code=503, detail="Model file is not available.")
+    return {"status": "ok", "service": "student-result-prediction", "model_available": True}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    MODEL_AVAILABLE.set(1 if MODEL_PATH.exists() else 0)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/predict", tags=["default"])
@@ -101,6 +134,7 @@ def predict(student: StudentInput):
     scaled = bundle["scaler"].transform(sample)
     prediction_code = int(bundle["model"].predict(scaled)[0])
     result = "PASS" if prediction_code == 1 else "FAIL"
+    PREDICTIONS.labels(result).inc()
     logger.info("prediction_completed prediction=%s", result)
     return {"prediction": result, "prediction_code": prediction_code}
 
