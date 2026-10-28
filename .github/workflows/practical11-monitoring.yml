@@ -1,11 +1,11 @@
-name: Practical 11 - Container Logging and Health Checks
+name: Practical 11 - Application Logging and Error Tracking
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "app.py"
+      - "api.py"
       - "Dockerfile"
       - "requirements.txt"
       - "train_model.py"
@@ -54,7 +54,19 @@ jobs:
           docker logs practical11-monitor
           exit 1
 
-      - name: Capture application logs
+      - name: Verify successful prediction and validation error
+        run: |
+          curl --fail --silent --show-error -X POST http://localhost:5000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"attendance":95,"internal_marks":95,"assignment_marks":95,"previous_score":95}'
+          status=$(curl --silent --output /tmp/validation-response.json --write-out "%{http_code}" \
+            -X POST http://localhost:5000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"attendance":150,"internal_marks":95,"assignment_marks":95,"previous_score":95}')
+          cat /tmp/validation-response.json
+          test "$status" = "422"
+
+      - name: Capture request and error logs
         if: always()
         run: docker logs practical11-monitor || true
 
